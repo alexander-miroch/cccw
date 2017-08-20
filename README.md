@@ -4,7 +4,7 @@ Cloud Coin Console Wallet
 Examples:
 
 Show inventory
-# cccw.py bank
+$ cccw.py bank
 Bank Inventory
         1s:          1, coins: 1
         5s:          0, coins: 0
@@ -15,14 +15,14 @@ Bank Inventory
 
 
 Import coins from dir and one file
-# cccw.py import --path /home/user/coinsdir /home/user/coin.stack
+$ cccw.py import --path /home/user/coinsdir /home/user/coin.stack
 
 Export coins
-# cccw.py export --coins 250:3 100:4
+$ cccw.py export --coins 250:3 100:4
 
 Fix fracked
-# cccw.py fixfracked
+$ cccw.py fixfracked
 
 Validate coins in the Bank
-# cccw.py verify
+$ cccw.py verify
 
