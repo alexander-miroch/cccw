@@ -16,9 +16,12 @@ try:
 except ImportError:
 	from urllib2 import urlopen, Request, URLError, HTTPError
 
+import ssl
+
 import json
 import ccm
 import time
+
 
 class DetectionAgent():
 	def __init__(self, idx, url):
@@ -44,7 +47,7 @@ class DetectionAgent():
 		return False
 
 	def detectCoin(self, cc):
-		self.debug("Verifying " + cc.sn + " denomination " + str(cc.denomination))
+		self.debug("Detecting " + cc.sn + " " + str(cc.denomination) + "s")
 
 		an = cc.ans[self.idx]
 		pan = cc.pans[self.idx]
@@ -91,14 +94,13 @@ class DetectionAgent():
 		except ValueError:
 			self.error("Failed to parse response: " + dataResponse)
 			return None
+		except ssl.SSLError as e:
+			self.error("Failed contact. HTTP SSL error: " + e.args[0])
+			return None
 		except:
 			raise CCException("Interrupted")
 
 		return data
-#		response = urlopen(self.RAIDA_LIST_URL, timeout = self.RAIDA_TIMEOUT)
-
-	
-
 
 
 class RAIDA():
@@ -248,14 +250,14 @@ class RAIDA():
 			cc.pastStatuses[intIdx] = status
 		except KeyError:
 			self.queue.task_done()
-			raise CCException("Failed to set status. Invalid index")	
+			ccm.CCM.log("RAIDA thread error. Invalid index: " + idx + " " + str(cc.pastStatuses) + " " + str(self.raida))
 		except:
+			ccm.CCM.log("RAIDA thread error. Generic: " + idx + " " + str(cc.pastStatuses) + " " + str(self.raida))
 			self.queue.task_done()
-			raise
+		else:
+			self.queue.task_done()
 
-		self.queue.task_done()
-
-
+		
 
 
 

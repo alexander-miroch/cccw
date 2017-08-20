@@ -56,8 +56,11 @@ class CCM():
 			self.initLogger()
 
 			actionName = "_doAction" + action[0].upper() + action[1:]
+			if (not hasattr(self, actionName)):
+				self.error("Invalid action: " + action)
+
 			actionCallable = getattr(self, actionName)
-			if (not (hasattr(self, actionName) and callable(actionCallable))):
+			if (not callable(actionCallable)):
 				self.error("Invalid action: " + action)
 
 			actionCallable()
@@ -101,11 +104,19 @@ class CCM():
 			raise CCException("TMP folder is not writable")
 
 
-#	def __getattr__(self, name):
-#		def function():
-#			print "xxxx " + name
-#
-#		return function
+	def readCoin(self, filePath):
+		try:
+			with open(filePath) as fd:
+				data = json.load(fd)
+				return  data['cloudcoin']
+		except OSError:
+			raise CCException("Failed to read file " + filePath)
+		except ValueError:
+			raise CCException("JSON parse error: " + filePath)
+		except KeyError:
+			raise CCException("Invalid coin: " + filePath)
+
+		raise CCException("Corrupted file " + fileParh)	
 
 
 	def readCoinsFromDir(self, dirName):
@@ -130,15 +141,47 @@ class CCM():
 
 
 	def _doActionBank(self):
-		print self.walletHome
+		coinStacks = self.readCoinsFromDir(self.bankDir)
+		self.bank.setInventory(coinStacks)
+		self.bank.showOff()
 		
 	def _doActionVerify(self):
 		coinStacks = self.readCoinsFromDir(self.bankDir)
-
 		self.bank.setInventory(coinStacks)
-	#	self.bank.readCoins()
+		self.bank.verifyCoins()
 
-		pass
+
+	def _doActionImport(self):
+		if (not 'path' in self.args or self.args['path'] is None):
+			paths = [ self.importDir ]
+		else:
+			paths = self.args['path']
+
+		inventory = {}
+		for path in paths:
+	#		if (path == self.bankDir or os.path.dirname(path) == self.bankDir):
+	#			raise CCException("Can not allow you to import from your BANK dir. Sorry")
+
+			thash = {}
+			if (os.path.isdir(path)):
+				thash = self.readCoinsFromDir(path)
+				for fileName in thash:
+					if (fileName in inventory):
+						raise CCException("Duplicate filename: " + fileName)
+
+					inventory[fileName] = thash[fileName]
+			elif (os.path.isfile(path)):
+				fileName = os.path.basename(path)
+				if (fileName in inventory):
+					raise CCException("Duplicate filename: " + fileName)
+
+				fileData = self.readCoin(path)
+				inventory[fileName] = fileData
+			else:
+				raise CCException("Invalid path '" + path + "' or it does not exist")
+
+		self.bank.setInventory(inventory)
+		self.bank.importCoins()
 
 	def __call__(self, value):
 		print "NOT ALLOWED";

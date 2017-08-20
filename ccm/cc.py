@@ -1,4 +1,5 @@
 
+import os
 import raida
 import time
 import datetime
@@ -47,13 +48,18 @@ class CloudCoin():
 		self.resetStats()
 		self.statusCounts[self.STATUS_UNKNOWN] = self.chainLen
 
+		self.type = "stack"
+
 	def setExpirationDate(self):
 		self.ed = datetime.datetime.fromtimestamp(time.time()).strftime('%m-%Y')
 
 	def setAOID(self):
 		self.aoid = []
-		self.aoid[0] = ["-".join(map(lambda x: str(x), self.pastStatuses))]
-		self.aoid[1] = str(self.status)
+		self.aoid.append("-".join(map(lambda x: str(x), self.pastStatuses)))
+		self.aoid.append(str(self.status))
+
+	def getFullName(self):
+		return ".".join([str(self.denomination), "CloudCoin", str(self.nn), str(self.sn), self.type])
 
 	def resetStats(self):
 		self.statusCounts = {
@@ -63,6 +69,16 @@ class CloudCoin():
 			self.STATUS_UNKNOWN : 0
 		}
 
+	def showStatus(self):
+		statuses = {
+			self.COIN_STATUS_OK : 'OK',
+			self.COIN_STATUS_COUNTERFEIT : 'Counterfeit',
+			self.COIN_STATUS_FRACKED : 'Fracked',
+			self.COIN_STATUS_SUSPECT : 'Suspect',
+		}
+
+
+		return statuses[self.status]
 
 	def sync(self):
 		self.resetStats()
@@ -85,11 +101,10 @@ class CloudCoin():
 			self.status = self.COIN_STATUS_OK
 			
 		self.setAOID()
-			
-		print self.status
-		print self.statusCounts
-
-		
+	
+	def generatePans(self):
+		self.pans = [ str(os.urandom(16).encode('hex')) for x in range(0, self.chainLen) ]
+	
 	def getDenomination(self):
 		sn = int(self.sn)
 		if (sn < 1):
@@ -111,3 +126,20 @@ class CloudCoin():
 			return self.DEN_250
 
 		return 0
+
+	def __call__(self):
+		ccSerialized = {
+			'cloudcoin' : [{
+				'sn' : self.sn,
+				'nn' : self.nn,
+				'ed' : self.ed,	
+				'an' : self.ans,
+				'aoid' : self.aoid
+			}]
+		}
+
+		if (len(self.pown) > 0):
+			ccSerialized['cloudcoin']['pown'] = self.pown
+
+		return ccSerialized
+
