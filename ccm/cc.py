@@ -39,7 +39,7 @@ class CloudCoin():
 			self.aoid = coin['aoid']
 
 		self.denomination = self.getDenomination()
-		self.pans = self.ans[:]
+		self.setPansToAns()
 
 		self.chainLen =  raida.RAIDA.RAIDA_CNT
 		self.status = self.COIN_STATUS_SUSPECT
@@ -79,6 +79,10 @@ class CloudCoin():
 
 
 		return statuses[self.status]
+	
+	def setPansToAns(self):
+		self.pans = self.ans[:]
+	
 
 	def sync(self):
 		self.resetStats()

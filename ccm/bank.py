@@ -80,14 +80,29 @@ class Bank():
 		if (not self.raida.isRAIDAOK()):
 			raise CCException("ERROR: RAIDA is not healthy. Giving up")
 
-	def saveCoin(self, cc):
+	def ifCoinExists(self, cc, folder):
+		fullName = cc.getFullName()
+		return os.path.exists(os.path.join(folder, fullName))
+
+	def backupCoin(self, cc, srcFolder, dstFolder):
+
+		fullName = cc.getFullName()
+		srcpath = os.path.join(srcFolder, fullName)
+		dstpath = os.path.join(dstFolder, fullName)
+		
+		os.rename(srcpath, dstpath)
+
+	def saveCoin(self, cc, folder):
 
 		hash = json.dumps(cc())
 
 		fullName = cc.getFullName()
-		path = os.path.join(self.bankDir, fullName)
+		path = os.path.join(folder, fullName)
 		
 		ccm.CCM.log("Saving " + path)
+		if (os.path.exists(path)):
+			raise CCException("File " + path + " already exist")
+
 		with open(path, "w") as fd:
 			fd.write(hash)
 
@@ -149,9 +164,9 @@ class Bank():
 
 				stats[cc.status] += 1
 
-				if (1 == 1 or cc.status == CloudCoin.COIN_STATUS_OK or cc.status == CloudCoin.COIN_STATUS_FRACKED):
+				if (cc.status == CloudCoin.COIN_STATUS_OK or cc.status == CloudCoin.COIN_STATUS_FRACKED):
 					try:
-						self.saveCoin(cc)
+						self.saveCoin(cc, self.bankDir)
 					except OSError as e:
 						ccm.CCM.log("Failed to save coin: " + e.strerror)
 						raise CCException("Failed to save coin, OS Error: " + e.strerror)
@@ -161,6 +176,8 @@ class Bank():
 					except IOError:
 						ccm.CCM.log("Failed to save coin: " + e.strerror)
 						raise CCException("Failed to save coin on disk: " + e.strerror)
+					except CCException:
+						raise
 					except:
 						trace = str(traceback.format_exception(*sys.exc_info()))
 						ccm.CCM.log("Failed to save coin: " + trace)
@@ -177,7 +194,6 @@ class Bank():
 		i, total = 1, self.getTotalCoins()
 		stats = {}
 
-		valid = fracked = counterfeit = 0
 		for denomination in sorted(self.inventory.iterkeys()):
 			coins =  self.inventory[denomination]
 			denStr = str(denomination) + "s"	
@@ -212,22 +228,112 @@ class Bank():
 
 					if (cc.status != CloudCoin.COIN_STATUS_OK):
 						ccm.CCM.log("Coin " + cc.name + "/" + cc.sn + " : " + cc.showStatus())
+					
 
 				except KeyboardInterrupt:
 					raise CCException("Interrputed")
 
 		
 		self.printStats(stats)
-		#valid, fracked, counterfeit = map(lambda x: str(x), [valid, fracked, counterfeit])
 
-		#total = str(self.getTotalCoins())
+	def fixCoins(self):
+		self.initRAIDA()		
 
-		#print "Total: " + str(self.getTotal()) + " from " + total + " coins"
-		#print "Valid: " + valid + "/" + total 
-		#print "Fracked: " + fracked + "/" + total 
-		#print "Counterfeit: " + counterfeit + "/" + total 
+		i, total = 1, self.getTotalCoins()
 
-		#		self.inventory[cc.denomination]
+		print "Searching for fracked coins"
+		for denomination in sorted(self.inventory.iterkeys()):
+			coins =  self.inventory[denomination]
+			denStr = str(denomination) + "s"	
 
-		#print self.getTotal()		
+			totalDenomination = len(coins)
+			for idx, cc in enumerate(coins, 1):
+				try:
+					if (self.signalRaised):
+						self.signalRaised = False
+
+					ccname = cc.name[:48]
+					sys.stdout.write("{:>6}/{} : ".format(i, total))
+
+					i += 1
+					self.raida.detectCoin(cc)
+					cc.sync()
+
+					if (cc.status == CloudCoin.COIN_STATUS_FRACKED):
+						ccm.CCM.log("Fixing was requested " + cc.name + "." + str(cc.sn))
+						print "Fixing coin. It is fracked: " + cc.name + " sn:" + str(cc.sn)	
+						self.raida.fixCoin(cc)
+						cc.sync()
+						print "RESULT OF FIXING: " + cc.showStatus()
+					else:
+						print "SKIP"
+
+
+				except KeyboardInterrupt:
+					raise CCException("Interrputed")
+	
+
+	def exportCoins(self, exportData, folder, backupFolder):
+		self.initRAIDA()		
+
+		toExport = []
+		for denomination in exportData:
+			count = exportData[denomination]
+			denStr = str(denomination) + "s"	
+			coins =  self.inventory[denomination]
+			if (count > len(coins)):
+				raise CCException("Not enough coins of denomination " + denStr)
+
+			exported = 0
+			for idx, cc in enumerate(coins, 1):
+				if (self.ifCoinExists(cc, folder)):
+					raise CCException("Coin " + cc.getFullName() + " already exists in Export Dir")
+
+				ccname = cc.name[:48]
+
+				ccm.CCM.log("Coin " + ccname + "/" + cc.sn + " " + denStr);
+				print "{:>6}/{} {:>48}/{:<8} {:>4}".format(idx, count, ccname, cc.sn, denStr)
+
+				self.raida.detectCoin(cc)
+				cc.sync()
+
+				if (cc.status != CloudCoin.COIN_STATUS_OK):
+					raise CCException("Coin " + cc.getFullName() + " is not valid: " + cc.showStatus())
+
+				cc.aoid = []
+				toExport.append(cc)
+				exported += 1
+
+				if (exported >= count):
+					break
+
+		for cc in toExport:
+			ccm.CCM.log("Exporting " + str(count) + "cc denomination " + denStr)
+			print "Exporting " + str(count) + "cc denomination " + denStr
+
+			try:
+				self.saveCoin(cc, folder)
+				self.backupCoin(cc, self.bankDir, backupFolder)
+			except OSError as e:
+				ccm.CCM.log("Failed to save coin: " + e.strerror)
+				raise CCException("Failed to save coin, OS Error: " + e.strerror)
+			except ValueError:
+				ccm.CCM.log("Failed to save coin: JSON")
+				raise CCException("Failed to create JSON from the coin")
+			except IOError:
+				ccm.CCM.log("Failed to save coin: " + e.strerror)
+				raise CCException("Failed to save coin on disk: " + e.strerror)
+			except CCException:
+				raise 
+			except:
+				trace = str(traceback.format_exception(*sys.exc_info()))
+				ccm.CCM.log("Failed to save coin: " + trace)
+				raise CCException("Generic error")
+			
+
+				
+				print idx,cc
+
+		print exportData
+
 

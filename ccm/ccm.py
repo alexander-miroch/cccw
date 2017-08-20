@@ -21,6 +21,7 @@ class CCM():
 		self.importDir = os.path.join(self.walletHome, "Import")
 		self.exportDir = os.path.join(self.walletHome, "Export")
 		self.trashDir = os.path.join(self.walletHome, "Trash")
+		self.backupDir = os.path.join(self.walletHome, "Backup")
 		self.tmpDir = os.path.join(self.walletHome, "tmp")
 
 		CCM.TMPDIR = self.tmpDir
@@ -82,7 +83,7 @@ class CCM():
 		if (not os.path.isdir(self.walletHome)):
 			self.confirm("Wallet Directory " + self.walletHome + " does not exist. Init it? (y/n)")
 			try:
-				for dirItem in [self.walletHome, self.bankDir, self.importDir, self.exportDir, self.trashDir, self.tmpDir]:
+				for dirItem in [self.walletHome, self.bankDir, self.importDir, self.exportDir, self.trashDir, self.tmpDir, self.backupDir]:
 					os.mkdir(dirItem)
 			except OSError as e:
 				if (e.errno != errno.EEXIST):
@@ -102,6 +103,9 @@ class CCM():
 
 		if (not os.access(self.tmpDir, os.W_OK)):
 			raise CCException("TMP folder is not writable")
+
+		if (not os.access(self.backupDir, os.W_OK)):
+			raise CCException("BACKUP folder is not writable")
 
 
 	def readCoin(self, filePath):
@@ -159,9 +163,6 @@ class CCM():
 
 		inventory = {}
 		for path in paths:
-	#		if (path == self.bankDir or os.path.dirname(path) == self.bankDir):
-	#			raise CCException("Can not allow you to import from your BANK dir. Sorry")
-
 			thash = {}
 			if (os.path.isdir(path)):
 				thash = self.readCoinsFromDir(path)
@@ -182,6 +183,38 @@ class CCM():
 
 		self.bank.setInventory(inventory)
 		self.bank.importCoins()
+
+	def _doActionFixfracked(self):
+		coinStacks = self.readCoinsFromDir(self.bankDir)
+		self.bank.setInventory(coinStacks)
+		self.bank.fixCoins()
+
+	def _doActionExport(self):
+	
+		if (not 'coins' in self.args or self.args['coins'] is None):
+			raise CCException("No coins specified")
+
+		coins = self.args['coins']
+		if (len(coins) > 5 or len(coins) == 0):
+			raise CCException("Invalid number of denominations")
+
+
+		exportData = {}
+		for item in coins:
+			try:
+				denomination, count = map(int, item.split(":"))
+			except ValueError as e:
+				raise CCException("Invalid coins format. Specify <denomination:count>, eg. 250:10")
+
+
+			if (not denomination in self.bank.inventory):
+				raise CCException("Unknown denomination: " + str(denomination))
+
+			exportData[denomination] = count
+
+		coinStacks = self.readCoinsFromDir(self.bankDir)
+		self.bank.setInventory(coinStacks)
+		self.bank.exportCoins(exportData, self.exportDir, self.backupDir)
 
 	def __call__(self, value):
 		print "NOT ALLOWED";

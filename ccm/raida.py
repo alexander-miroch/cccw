@@ -22,6 +22,8 @@ import json
 import ccm
 import time
 
+from fixhelper import FixHelper
+
 
 class DetectionAgent():
 	def __init__(self, idx, url):
@@ -46,6 +48,37 @@ class DetectionAgent():
 
 		return False
 
+	def fixCoin(self, cc, triad, tickets, raidaIdx):
+		self.debug("Fixing " + cc.sn + " " + str(cc.denomination) + "s")
+
+		an = cc.ans[raidaIdx]
+		
+		self.debug("an " + an)
+
+		params = []
+		for i in range(0, 3):
+			params.append("fromserver" + str(i + 1) + "=" + str(triad[i]))
+			params.append("message" + str(i + 1) + "=" + tickets[i])
+
+		# No error. PAN (no AN)
+		params.append("pan=" + an)
+		params = "&".join(params)
+		data = self.doRequest("fix?" + params)
+		if (data == None):
+			return None
+
+		try:
+			status = data['status']
+			if (status == "success"):
+				return True
+			
+			return False
+		except KeyError:
+			self.error("Failed to read response. Invalid index: " + str(data))
+
+		return False
+
+
 	def detectCoin(self, cc):
 		self.debug("Detecting " + cc.sn + " " + str(cc.denomination) + "s")
 
@@ -66,10 +99,36 @@ class DetectionAgent():
 			elif (status == "fail"):
 				return CloudCoin.STATUS_COUNTERFEIT
 		except KeyError:
-			self.error("Failed to read response. Invalid index: " + data)
+			self.error("Failed to read response. Invalid index: " + str(data))
 
 		return CloudCoin.STATUS_ERROR
 	
+
+	def getTicket(self, cc, an):
+		self.debug("Obtaining ticket " + cc.sn + " " + str(cc.denomination) + "s ans " + an)
+
+		# an and pan are equal
+		denomination = str(cc.denomination)
+
+		params = "&".join(["nn=" + cc.nn, "sn=" + cc.sn, "an=" + an, "pan=" + an, "denomination=" + denomination])
+
+		data = self.doRequest("get_ticket?" + params)
+		if (data == None):
+			return None
+		
+		try:
+			status = data['status']
+			if (status != 'ticket'):
+				self.error("Failed to read response. Invalid status: " + str(status))
+				return None
+			
+			ticket = data['message']
+
+			return ticket
+		except KeyError:
+			self.error("Failed to read response. Invalid index: " + str(data))
+
+		return None
 
 	def doRequest(self, path):
 		path = "/".join([self.url, path])
@@ -141,19 +200,19 @@ class RAIDA():
 	def initialize(self):
 		rex = re.compile(r'^RAIDA(\d+)\..+')
 
+		nowTs = int(time.time())
+
 		try:
 			mtime = os.path.getmtime(self.cacheFile)
 		except OSError as e:
 			if (e.errno != errno.ENOENT):
 				raise CCException("Failed to fetch RAIDA list " + str(e))
 		
+			mtime = nowTs
 			self.fetchRAIDA()
 		except:
 			raise CCException("Failed to fetch RAIDA list")
 		
-		nowTs = int(time.time())
-		mtime = int(mtime)
-	
 		if (nowTs - mtime > self.RAIDA_CACHESECS):
 			self.fetchRAIDA()
 
@@ -258,7 +317,75 @@ class RAIDA():
 			self.queue.task_done()
 
 		
+	def fixCoin(self, cc):
+		cc.setPansToAns()
 
+		raidaIsInvalidData = [ False for i in range(0, self.RAIDA_CNT) ]
 
+		for i, status in enumerate(cc.pastStatuses):
+			if (raidaIsInvalidData[i] or status != CloudCoin.STATUS_COUNTERFEIT):
+				continue
+		
+			fixer = FixHelper(i)
+			corner = 1
 
+			ccm.CCM.log("Iteration: " + str(i) + " fixer " + str(fixer.currentTriad))
+			print "Interation for RAIDA" + str(i)
+
+			while not fixer.finished:
+				trustedServerAns = [ 
+					cc.ans[fixer.currentTriad[0]],
+					cc.ans[fixer.currentTriad[1]],
+					cc.ans[fixer.currentTriad[2]]
+				]
+	
+				ccm.CCM.log(" ans: " + str(trustedServerAns))
+		
+				tickets = []
+				for ti in range(0, 3):
+					agentIdx = str(fixer.currentTriad[ti])
+					detectionAgent = self.raida[agentIdx]['agent']
+	
+					sys.stdout.write('Requesting ticket RAIDA' + agentIdx + ': ')
+					ccm.CCM.log('Requesting ticket RAIDA' + agentIdx + ': ')
+					tickets.append(detectionAgent.getTicket(cc, trustedServerAns[ti]))
+
+					ccm.CCM.log(str(tickets[ti]))
+					print str(str(tickets[ti]))
+
+				if (None in tickets):
+					corner += 1
+
+					ccm.CCM.log("Corner " + str(corner))
+					fixer.setCornerToCheck(corner);
+	
+					if (fixer.finished):
+						ccm.CCM.log("Setting RAIDA" + str(i) + " invalid")
+						raidaIsInvalidData[i] = True	
+				else:
+					agentIdx = str(i)
+					detectionAgent = self.raida[agentIdx]['agent']
+					sys.stdout.write('Requesting fix from RAIDA' + agentIdx + ': ')
+					ccm.CCM.log('Requesting fix from RAIDA' + agentIdx + ': ')
+
+					result = detectionAgent.fixCoin(cc, fixer.currentTriad, tickets, i)
+					if (result):
+						ccm.CCM.log("success")
+						print "success"
+						cc.pastStatuses[i] = CloudCoin.STATUS_PASS
+						fixer.finished = True
+
+					else:
+						ccm.CCM.log("failed")
+						print "failed"
+		
+						corner += 1
+						ccm.CCM.log("Corner " + str(corner))
+						fixer.setCornerToCheck(corner);
+	
+						if (fixer.finished):
+							ccm.CCM.log("Setting RAIDA" + str(i) + " invalid")
+							raidaIsInvalidData[i] = True
+	
+		ccm.CCM.log("Fixing done")		
 
