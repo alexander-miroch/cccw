@@ -15,6 +15,7 @@ parser.add_argument('action', metavar='ACTION', choices=actionChoises, type=str,
 parser.add_argument('--wdir', metavar='<dirname>', default="~/.cccw", type=str, help='Path to the wallet directory')
 parser.add_argument('--path', metavar='<dirname|filename>', type=str, help='Path to the files or directorie to import, separated by space', nargs='*')
 parser.add_argument('--coins', metavar='<denomination:count>', type=str, help='Coins to export', nargs='*')
+parser.add_argument('--stack', help='Export as a single file', action='store_true')
 
 args = parser.parse_args()
 args = vars(args)

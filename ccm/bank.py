@@ -9,6 +9,8 @@ import ccm
 import signal
 import json
 
+import time
+
 import traceback
 
 class Bank():
@@ -91,6 +93,35 @@ class Bank():
 		dstpath = os.path.join(dstFolder, fullName)
 		
 		os.rename(srcpath, dstpath)
+
+	def saveCoins(self, coins, folder):
+		stackCoins = []
+		for cc in coins:
+			jhash = cc()
+			stackCoins.append(jhash['cloudcoin'][0])
+
+		total = len(stackCoins)
+
+		ts = str(int(time.time()))
+
+		fullName = ".".join([str(total), "CloudCoins", ts, "stack"])
+		path = os.path.join(folder, fullName)
+
+		ccm.CCM.log("Saving " + path)
+		if (os.path.exists(path)):
+			raise CCException("File " + path + " already exist")
+
+		stackCoins = {
+			'cloudcoin' : stackCoins
+		}	
+
+		hash = json.dumps(stackCoins)
+
+
+		with open(path, "w") as fd:
+			fd.write(hash)
+
+
 
 	def saveCoin(self, cc, folder):
 
@@ -273,7 +304,7 @@ class Bank():
 					raise CCException("Interrputed")
 	
 
-	def exportCoins(self, exportData, folder, backupFolder):
+	def exportCoins(self, exportData, isStack, folder, backupFolder):
 		self.initRAIDA()		
 
 		toExport = []
@@ -289,16 +320,19 @@ class Bank():
 				if (self.ifCoinExists(cc, folder)):
 					raise CCException("Coin " + cc.getFullName() + " already exists in Export Dir")
 
+				if (self.ifCoinExists(cc, backupFolder)):
+					raise CCException("Coin " + cc.getFullName() + " already exists in Backup Dir")
+
 				ccname = cc.name[:48]
 
 				ccm.CCM.log("Coin " + ccname + "/" + cc.sn + " " + denStr);
 				print "{:>6}/{} {:>48}/{:<8} {:>4}".format(idx, count, ccname, cc.sn, denStr)
 
-				self.raida.detectCoin(cc)
-				cc.sync()
+			#	self.raida.detectCoin(cc)
+			#	cc.sync()
 
-				if (cc.status != CloudCoin.COIN_STATUS_OK):
-					raise CCException("Coin " + cc.getFullName() + " is not valid: " + cc.showStatus())
+			#	if (cc.status != CloudCoin.COIN_STATUS_OK and cc.status != CloudCoin.COIN_STATUS_FRACKED):
+			#		raise CCException("Coin " + cc.getFullName() + " is not valid: " + cc.showStatus())
 
 				cc.aoid = []
 				toExport.append(cc)
@@ -307,10 +341,33 @@ class Bank():
 				if (exported >= count):
 					break
 
-		for cc in toExport:
-			ccm.CCM.log("Exporting " + str(count) + "cc denomination " + denStr)
-			print "Exporting " + str(count) + "cc denomination " + denStr
+		ccm.CCM.log("Exporting " + str(count) + "cc denomination " + denStr + " stack: " + str(isStack))
+		print "Exporting " + str(count) + "cc denomination " + denStr + " stack: " + str(isStack)
 
+		if (isStack):
+			try:
+				self.saveCoins(toExport, folder)
+				for cc in toExport:
+					self.backupCoin(cc, self.bankDir, backupFolder)
+			except OSError as e:
+				ccm.CCM.log("Failed to save coins: " + e.strerror)
+				raise CCException("Failed to save coins, OS Error: " + e.strerror)
+			except ValueError:
+				ccm.CCM.log("Failed to save coin: JSON")
+				raise CCException("Failed to create JSON from the coins")
+			except IOError:
+				ccm.CCM.log("Failed to save coins: " + e.strerror)
+				raise CCException("Failed to save coins on disk: " + e.strerror)
+			except CCException:
+				raise 
+			except:
+				trace = str(traceback.format_exception(*sys.exc_info()))
+				ccm.CCM.log("Failed to save coins: " + trace)
+				raise CCException("Generic error")
+
+			return
+
+		for cc in toExport:
 			try:
 				self.saveCoin(cc, folder)
 				self.backupCoin(cc, self.bankDir, backupFolder)
@@ -332,8 +389,5 @@ class Bank():
 			
 
 				
-				print idx,cc
-
-		print exportData
 
 

@@ -95,11 +95,12 @@ class CloudCoin():
 		
 		self.setExpirationDate()
 
-		if (self.statusCounts[self.STATUS_UNKNOWN] > self.chainLen / 2):
+		suspectStatuses = self.statusCounts[self.STATUS_ERROR] + self.statusCounts[self.STATUS_UNKNOWN]
+		if (suspectStatuses > self.chainLen / 2):
 			self.status = self.COIN_STATUS_SUSPECT
 		elif (self.statusCounts[self.STATUS_COUNTERFEIT] > self.statusCounts[self.STATUS_PASS]):
 			self.status = self.COIN_STATUS_COUNTERFEIT
-		elif (self.statusCounts[self.STATUS_COUNTERFEIT] > 0 or self.statusCounts[self.STATUS_ERROR] > 0):
+		elif (self.statusCounts[self.STATUS_COUNTERFEIT] > 0):
 			self.status = self.COIN_STATUS_FRACKED
 		else:
 			self.status = self.COIN_STATUS_OK

@@ -214,7 +214,7 @@ class CCM():
 
 		coinStacks = self.readCoinsFromDir(self.bankDir)
 		self.bank.setInventory(coinStacks)
-		self.bank.exportCoins(exportData, self.exportDir, self.backupDir)
+		self.bank.exportCoins(exportData, self.args['stack'], self.exportDir, self.backupDir)
 
 	def __call__(self, value):
 		print "NOT ALLOWED";
