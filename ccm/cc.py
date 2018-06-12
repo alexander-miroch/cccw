@@ -144,7 +144,7 @@ class CloudCoin():
 		}
 
 		if (len(self.pown) > 0):
-			ccSerialized['cloudcoin']['pown'] = self.pown
+			ccSerialized['cloudcoin'][0]['pown'] = self.pown
 
 		return ccSerialized
 
