@@ -145,10 +145,10 @@ class DetectionAgent():
 			data = json.loads(dataResponse)
 
 		except URLError as e:
-			self.error("Failed to contact: " + e.reason)
+			self.error("Failed to contact: " + stR(e.reason))
 			return None
 		except HTTPError as e:
-			self.error("Failed contact. HTTP error: " + e.reason)
+			self.error("Failed contact. HTTP error: " + str(e.reason))
 			return None
 		except ValueError:
 			self.error("Failed to parse response: " + dataResponse)
