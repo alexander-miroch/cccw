@@ -100,6 +100,8 @@ class CloudCoin():
 			self.status = self.COIN_STATUS_SUSPECT
 		elif (self.statusCounts[self.STATUS_COUNTERFEIT] > self.statusCounts[self.STATUS_PASS]):
 			self.status = self.COIN_STATUS_COUNTERFEIT
+		elif (self.statusCounts[self.STATUS_COUNTERFEIT] > 5):
+			self.status = self.COIN_STATUS_COUNTERFEIT
 		elif (self.statusCounts[self.STATUS_COUNTERFEIT] > 0):
 			self.status = self.COIN_STATUS_FRACKED
 		else:

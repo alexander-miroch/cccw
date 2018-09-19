@@ -165,104 +165,117 @@ class Bank():
 				if (os.path.isfile(path)):
 					raise CCException("Error: " + path + " already exists. Will not import anything")
 
-		i, total = 1, self.getTotalCoins()
-		stats = {}
-
-		for denomination in sorted(self.inventory.iterkeys()):
-			coins =  self.inventory[denomination]
-			denStr = str(denomination) + "s"	
-			for cc in coins:
-				ccname = cc.name[:48]
-
-				ccm.CCM.log("Importing " + cc.name + "/" + cc.sn + " " + str(denomination) + "s")
-				sys.stdout.write("{:>6}/{} {:>48}/{:<8} {:>4}: ".format(i, total, ccname, cc.sn, denStr))
-				i += 1
-				
-				cc.generatePans()
-				self.raida.detectCoin(cc)
-				cc.sync()
-
-				message = cc.showStatus()
-				print message
-
-				if (cc.status != CloudCoin.COIN_STATUS_OK):
-					message += " " + str(cc.pastStatuses)
-
-				ccm.CCM.log(message)
-
-				if (not cc.status in stats):
-					stats[cc.status] = 0
-
-				stats[cc.status] += 1
-
-				if (cc.status == CloudCoin.COIN_STATUS_OK or cc.status == CloudCoin.COIN_STATUS_FRACKED):
-					try:
-						self.saveCoin(cc, self.bankDir)
-					except OSError as e:
-						ccm.CCM.log("Failed to save coin: " + e.strerror)
-						raise CCException("Failed to save coin, OS Error: " + e.strerror)
-					except ValueError:
-						ccm.CCM.log("Failed to save coin: JSON")
-						raise CCException("Failed to create JSON from the coin")
-					except IOError:
-						ccm.CCM.log("Failed to save coin: " + e.strerror)
-						raise CCException("Failed to save coin on disk: " + e.strerror)
-					except CCException:
-						raise
-					except:
-						trace = str(traceback.format_exception(*sys.exc_info()))
-						ccm.CCM.log("Failed to save coin: " + trace)
-						raise CCException("Generic error")
-
-		self.printStats(stats)
-
-
+		self.verifyCoins(True)
 				
 
-	def verifyCoins(self):
+	def verifyCoins(self, needPown=False):
 		self.initRAIDA()		
 
 		i, total = 1, self.getTotalCoins()
 		stats = {}
 
+		ccm.CCM.log("POWN " + str(needPown))
+
 		for denomination in sorted(self.inventory.iterkeys()):
 			coins =  self.inventory[denomination]
-			denStr = str(denomination) + "s"	
-
+			denStr = str(denomination) + "s"
 			totalDenomination = len(coins)
-			for idx, cc in enumerate(coins, 1):
-				try:
-					if (self.signalRaised):
-						self.signalRaised = False
+			if (totalDenomination == 0):
+				continue
 
+			multiAtOnce = 5
+			chunks = totalDenomination / multiAtOnce 
+			if (totalDenomination % multiAtOnce):
+				chunks += 1
+			ist, ifi = 0, 0
+
+			for j in xrange(0, chunks):
+				ist = j * multiAtOnce
+				ifi = ist + multiAtOnce
+				clen = multiAtOnce
+				if (ifi >= totalDenomination):
+					ifi = totalDenomination + 1
+					clen = ifi - totalDenomination + 1
+
+				coinsChunk = coins[ist:ifi]
+				sys.stdout.write("Chunk {:>6}/{} \n".format(j + 1, chunks))
+				ccm.CCM.log("Multiverify chunk " + str(j + 1) + " of " + str(chunks)) 
+				for idx, cc in enumerate(coinsChunk):
 					ccname = cc.name[:48]
-					ccm.CCM.log("Verifying " + cc.name + "/" + cc.sn + " " + str(denomination) + "s")
-					sys.stdout.write("{:>6}/{} {:>48}/{:<8} {:>4}: ".format(i, total, ccname, cc.sn, denStr))
-					i += 1
+					ccm.CCM.log("Multiverify: " + cc.name + " " + str(cc.sn) + " " + denStr)
 
-					ccm.CCM.log('Progress: ' + str(idx) + '/' + str(totalDenomination))
-					self.raida.detectCoin(cc)
+					if (needPown):
+						cc.generatePans()
+
+				ccm.CCM.log("Before")
+				for cc in coinsChunk:
+					ccm.CCM.log(cc.pastStatuses)
+
+				self.raida.multiDetectCoins(coinsChunk)
+
+				ccm.CCM.log("After")
+				for cc in coinsChunk:
+					ccm.CCM.log(cc.pastStatuses)
+
+				fracked = 0
+				counterfeit = 0
+				valid = 0
+				error = 0
+				messages = []
+
+				for idx, cc in enumerate(coinsChunk):
 					cc.sync()
-
-					message = cc.showStatus()
-					print message
-
-					if (cc.status != CloudCoin.COIN_STATUS_OK):
-						message += " " + str(cc.pastStatuses)
-
-					ccm.CCM.log(message)
 
 					if (not cc.status in stats):
 						stats[cc.status] = 0
 	
 					stats[cc.status] += 1
 
-					if (cc.status != CloudCoin.COIN_STATUS_OK):
-						ccm.CCM.log("Coin " + cc.name + "/" + cc.sn + " : " + cc.showStatus())
-					
+					if (cc.status == CloudCoin.COIN_STATUS_OK):
+						valid += 1
+					elif (cc.status == CloudCoin.COIN_STATUS_COUNTERFEIT):
+						counterfeit += 1
+					elif (cc.status == CloudCoin.COIN_STATUS_FRACKED):
+						fracked += 1
+					else:
+						error += 1
+				
+					messages.append({
+						'sn' : cc.sn,
+						'status' : cc.showStatus()
+					})
 
-				except KeyboardInterrupt:
-					raise CCException("Interrputed")
+					ccname = cc.name[:48]
+					sys.stdout.write("{}/{}{:>48}/{:<8} {:>4}:  ".format(idx + 1, clen, ccname, cc.sn, denStr))
+					sys.stdout.write(cc.showStatus())
+					sys.stdout.write("\n")
+					ccm.CCM.log("Multiveried: " + cc.name + " " + str(cc.sn) + " " + denStr)
+
+					if (needPown):
+						if (cc.status == CloudCoin.COIN_STATUS_OK or cc.status == CloudCoin.COIN_STATUS_FRACKED):
+							try:
+								self.saveCoin(cc, self.bankDir)
+							except OSError as e:
+								ccm.CCM.log("Failed to save coin: " + e.strerror)
+								raise CCException("Failed to save coin, OS Error: " + e.strerror)
+							except ValueError:
+								ccm.CCM.log("Failed to save coin: JSON")
+								raise CCException("Failed to create JSON from the coin")
+							except IOError:
+								ccm.CCM.log("Failed to save coin: " + e.strerror)
+								raise CCException("Failed to save coin on disk: " + e.strerror)
+							except CCException:
+								raise
+							except:
+								trace = str(traceback.format_exception(*sys.exc_info()))
+								ccm.CCM.log("Failed to save coin: " + trace)
+								raise CCException("Generic error")
+
+				print "Result (ok/fracked/counterfeit/error): " + str(valid) + "/" + str(fracked) + "/" + str(counterfeit) + "/" + str(error) + "\n"
+				ccm.CCM.log("Result (ok/fracked/counterfeit/error): " + str(valid) + "/" + str(fracked) + "/" + str(counterfeit) + "/" + str(error))
+				ccm.CCM.log("Result: " + str(messages))
+
+					
 
 		
 		self.printStats(stats)

@@ -11,10 +11,13 @@ from threading import Thread
 import httplib, sys
 from Queue import Queue
 
-try:
-	from urllib.request import urlopen, Request, URLError, HTTPError
-except ImportError:
-	from urllib2 import urlopen, Request, URLError, HTTPError
+#try:
+#	from urllib.request import urlopen, Request, URLError, HTTPError
+#except ImportError:
+from urllib2 import urlopen, Request, URLError, HTTPError
+
+import urllib
+import urllib2
 
 import ssl
 
@@ -78,6 +81,62 @@ class DetectionAgent():
 
 		return False
 
+	def detectCoins(self, coinsChunk):
+		self.debug("Detecting " + str(len(coinsChunk)) + " coins")
+
+		nns = []
+		ans = []
+		pans = []
+		denomination = []
+		sns = []
+
+		results = []
+		for cc in coinsChunk:
+			nns.append("nns[]=1")
+			sns.append("sns[]=" + str(cc.sn))
+			ans.append("ans[]=" + str(cc.ans[self.idx]))
+			pans.append("pans[]=" + str(cc.pans[self.idx]))
+			denomination.append("denomination[]=" + str(cc.denomination))
+
+			results.append(CloudCoin.STATUS_ERROR)
+
+		data = []
+		data.append("&".join(nns))
+		data.append("&".join(sns))
+		data.append("&".join(ans))
+		data.append("&".join(pans))
+		data.append("&".join(denomination))
+
+		data = "&".join(data)
+
+		rv = self.doPost('multi_detect', data)
+		if (rv is None):
+			self.error("None response from doPost")
+			return results
+
+		if (len(rv) != len(coinsChunk)):
+			self.error("Invalid response: " + str(len(rv)) + " vs our " + str(len(coinsChunk)))
+			return results
+
+		for idx, res in enumerate(rv):
+			if not "status" in res:
+				self.error("No status field for coin idx: " + str(idx))
+				continue
+
+			rstatus = res['status']
+			
+			if (rstatus == CloudCoin.STATUS_PASS):
+				rsn = res['sn']
+				if (coinsChunk[idx].sn != rsn):
+					self.error("SN mismatch for idx " + str(idx) + ": " + str(coinsChunk[idx].sn) + " vs " + rsn)
+					continue
+
+			if (rstatus == "pass"):
+				results[idx] = CloudCoin.STATUS_PASS
+			elif (rstatus == "fail"):
+				results[idx] = CloudCoin.STATUS_COUNTERFEIT
+
+		return results
 
 	def detectCoin(self, cc):
 		self.debug("Detecting " + cc.sn + " " + str(cc.denomination) + "s")
@@ -130,6 +189,47 @@ class DetectionAgent():
 
 		return None
 
+	def doPost(self, url, data):
+		handler = urllib2.HTTPHandler()
+		opener = urllib2.build_opener(handler)
+		
+		path = "/".join([self.url, url])
+
+		request = urllib2.Request(path, data=data)
+		request.add_header('Content-Type', 'application/x-www-form-urlencoded')
+		request.add_header('User-Agent', 'Mozilla/5.0')
+
+		self.debug("Request " + path + " " + data)
+
+		try:
+			connection = opener.open(request)
+			if (connection.code != 200):
+				self.error("Invalid code " + str(connection.code))
+				return None
+
+			data = connection.read()
+			self.debug(data)
+			data = json.loads(data)
+		except urllib2.HTTPError,e:
+			self.error("Error " + str(e))
+			return None
+		except URLError as e:
+			self.error("Failed to contact: " + str(e.reason))
+			return None
+		except HTTPError as e:
+			self.error("Failed contact. HTTP error: " + str(e.reason))
+			return None
+		except ValueError:
+			self.error("Failed to parse response: " + data)
+			return None
+		except ssl.SSLError as e:
+			self.error("Failed contact. HTTP SSL error: " + e.args[0])
+			return None
+		except:
+			raise CCException("Interrupted")
+
+		return data
+
 	def doRequest(self, path):
 		path = "/".join([self.url, path])
 
@@ -145,7 +245,7 @@ class DetectionAgent():
 			data = json.loads(dataResponse)
 
 		except URLError as e:
-			self.error("Failed to contact: " + stR(e.reason))
+			self.error("Failed to contact: " + str(e.reason))
 			return None
 		except HTTPError as e:
 			self.error("Failed contact. HTTP error: " + str(e.reason))
@@ -295,11 +395,13 @@ class RAIDA():
 		self.queue.task_done()
 
 
+	def multiDetectCoins(self, coinsChunk):
+		self.runThreadPool(self._multiDetectCoins, coinsChunk)
+
 	def detectCoin(self, cc):
 		self.runThreadPool(self._detectCoin, cc)
 
 	def _detectCoin(self, cc):
-			
 		try:
 			idx = str(self.queue.get())
 			detectionAgent = self.raida[idx]['agent']
@@ -313,6 +415,26 @@ class RAIDA():
 		except:
 			ccm.CCM.log("RAIDA thread error. Generic: " + idx + " " + str(cc.pastStatuses) + " " + str(self.raida))
 			self.queue.task_done()
+		else:
+			self.queue.task_done()
+
+	def _multiDetectCoins(self, coinsChunk):
+		try:
+			idx = str(self.queue.get())
+			detectionAgent = self.raida[idx]['agent']
+
+			results = detectionAgent.detectCoins(coinsChunk)
+			intIdx = int(idx)
+			for idx, rstatus in enumerate(results):
+				coinsChunk[idx].pastStatuses[intIdx] = rstatus
+
+		#	cc.pastStatuses[intIdx] = status
+		except KeyError:
+			self.queue.task_done()
+			ccm.CCM.log("RAIDA thread error. Invalid index: " + idx + " " + str(self.raida))
+#		except:
+#			ccm.CCM.log("RAIDA thread error. Generic: " + idx + " " + str(self.raida))
+#			self.queue.task_done()
 		else:
 			self.queue.task_done()
 
