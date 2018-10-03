@@ -183,7 +183,7 @@ class Bank():
 			if (totalDenomination == 0):
 				continue
 
-			multiAtOnce = 5
+			multiAtOnce = 100
 			chunks = totalDenomination / multiAtOnce 
 			if (totalDenomination % multiAtOnce):
 				chunks += 1
